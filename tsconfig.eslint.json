@@ -1,0 +1,10 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+      "allowJs": true,
+      "noEmit": true,
+      "strict": true,
+      "forceConsistentCasingInFileNames": true,
+    },
+    "include": ["src", ".*.js", "*.js"]
+}
