@@ -33,4 +33,4 @@ jobs:
         run: yarn office-addin-lint check --files src/**/*.{ts,tsx}
 
       - name: Run Prettier
-        run: yarn office-addin-lint prettier --fix src/**/*.{ts,tsx}
+        run: yarn office-addin-lint prettier --files src/**/*.{ts,tsx}
