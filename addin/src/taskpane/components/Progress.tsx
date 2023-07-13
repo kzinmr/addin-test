@@ -1,4 +1,4 @@
-import * as React from "react";
+import React, { Component } from "react";
 import { Spinner, SpinnerSize } from "@fluentui/react";
 
 export interface ProgressProps {
@@ -7,7 +7,7 @@ export interface ProgressProps {
   title: string;
 }
 
-export default class Progress extends React.Component<ProgressProps> {
+export default class Progress extends Component<ProgressProps> {
   render() {
     const { logo, message, title } = this.props;
 

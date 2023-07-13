@@ -4,5 +4,6 @@
   ],
   "extends": [
     "plugin:office-addins/react"
-  ]
+  ],
+  "globals": { "fetch": false }
 }

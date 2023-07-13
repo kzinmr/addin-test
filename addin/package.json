@@ -41,6 +41,7 @@
     "@types/react": "^17.0.39",
     "@types/react-dom": "^17.0.11",
     "@types/react-hot-loader": "^4.1.1",
+    "@types/tapable": "^2.2.3",
     "@types/webpack": "^4.4.34",
     "@types/webpack-dev-server": "^4.1.0",
     "acorn": "^8.5.0",

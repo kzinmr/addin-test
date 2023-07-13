@@ -1,4 +1,4 @@
-import * as React from "react";
+import React, { Component } from "react";
 
 export interface HeaderProps {
   title: string;
@@ -6,7 +6,7 @@ export interface HeaderProps {
   message: string;
 }
 
-export default class Header extends React.Component<HeaderProps> {
+export default class Header extends Component<HeaderProps> {
   render() {
     const { title, logo, message } = this.props;
 
