@@ -10,7 +10,7 @@ export type AppProps = {
   isOfficeInitialized: boolean;
 }
 
-async function submit(url = "", data = ""): Promise<string> {
+async function submit(url = "", data = ""): Promise<Array<string>> {
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -22,7 +22,9 @@ async function submit(url = "", data = ""): Promise<string> {
     throw new Error(`HTTP error, status = ${response.status}`);
   }
   console.log(response);
-  return response.text();
+  const json = await response.json();
+  const text: string = json?.result
+  return text.split("\n");
 }
 
 async function ask() {
@@ -34,8 +36,11 @@ async function ask() {
 
     const endpoint = "https://localhost:9000/ask";
     try {
-      const received: string = await submit(endpoint, input.text);
-      const paragraph = context.document.body.insertText(received, Word.InsertLocation.end);
+      const received: Array<string> = await submit(endpoint, input.text);
+      let range = context.document.getSelection();
+      for (const line of received) {
+        range.insertParagraph(line, Word.InsertLocation.before);
+      }
       await context.sync();
     } catch (error) {
       console.error(error);
