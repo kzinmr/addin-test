@@ -1,16 +1,29 @@
-import React, { Component } from "react";
+import React from "react";
 import { DefaultButton } from "@fluentui/react";
 import Header from "./Header";
 import Progress from "./Progress";
 
 /* global Word, require */
 
-export interface AppProps {
+export type AppProps = {
   title: string;
   isOfficeInitialized: boolean;
 }
 
-export interface AppState {}
+async function submit(url = "", data = ""): Promise<string> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({q: data}),
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP error, status = ${response.status}`);
+  }
+  console.log(response);
+  return response.text();
+}
 
 async function ask() {
   return Word.run(async (context) => {
@@ -30,57 +43,34 @@ async function ask() {
   });
 }
 
-async function submit(url = "", data = ""): Promise<string> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({q: data}),
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP error, status = ${response.status}`);
-  }
-  console.log(response);
-  return response.text();
-}
+const App: React.FC<AppProps> = (props) => {
 
-export default class App extends Component<AppProps, AppState> {
-  constructor(props, context) {
-    super(props, context);
-    this.state = {};
-  }
-
-  click = ask;
-
-  render() {
-    const { title, isOfficeInitialized } = this.props;
-
-    if (!isOfficeInitialized) {
-      return (
-        <Progress
-          title={title}
-          logo={require("./../../../assets/logo-filled.png")}
-          message="Please sideload your addin to see app body."
-        />
-      );
-    }
-
+  if (!props.isOfficeInitialized) {
     return (
-      <div className="ms-welcome">
-        <Header logo={require("./../../../assets/logo-filled.png")} title={this.props.title} message="Ask Me" />
-
-        <main className="ms-welcome__main">
-          <h2 className="ms-font-xl ms-fontWeight-semilight ms-fontColor-neutralPrimary ms-u-slideUpIn20">Ask LLM</h2>
-
-          <p className="ms-font-l">
-            Select the body text, then click <b>Ask</b>.
-          </p>
-          <DefaultButton className="ms-welcome__action" iconProps={{ iconName: "ChevronRight" }} onClick={this.click}>
-            Ask
-          </DefaultButton>
-        </main>
-      </div>
+      <Progress
+        title={props.title}
+        logo={require("./../../../assets/logo-filled.png")}
+        message="Please sideload your addin to see app body."
+      />
     );
   }
+
+  return (
+    <div className="ms-welcome">
+      <Header logo={require("./../../../assets/logo-filled.png")} title={props.title} message="Ask Me" />
+
+      <main className="ms-welcome__main">
+        <h2 className="ms-font-xl ms-fontWeight-semilight ms-fontColor-neutralPrimary ms-u-slideUpIn20">Ask LLM</h2>
+
+        <p className="ms-font-l">
+          Select the body text, then click <b>Ask</b>.
+        </p>
+        <DefaultButton className="ms-welcome__action" iconProps={{ iconName: "ChevronRight" }} onClick={ask}>
+          Ask
+        </DefaultButton>
+      </main>
+    </div>
+  );
 }
+
+export default App;
