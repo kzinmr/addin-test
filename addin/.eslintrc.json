@@ -5,5 +5,9 @@
   "extends": [
     "plugin:office-addins/react"
   ],
-  "globals": { "fetch": false }
+  "globals": { "fetch": false },
+  "env": {
+    "browser": true,
+    "node": true
+  }
 }

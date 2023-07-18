@@ -1,55 +1,15 @@
-import React from "react";
+/* global Word */
+import React, { useState, useEffect } from "react";
 import { DefaultButton } from "@fluentui/react";
 import Header from "./Header";
 import Progress from "./Progress";
 
-/* global Word, require */
-
 export type AppProps = {
   title: string;
   isOfficeInitialized: boolean;
-}
-
-async function submit(url = "", data = ""): Promise<Array<string>> {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({q: data}),
-  });
-  if (!response.ok) {
-    throw new Error(`HTTP error, status = ${response.status}`);
-  }
-  console.log(response);
-  const json = await response.json();
-  const text: string = json?.result
-  return text.split("\n");
-}
-
-async function ask() {
-  return Word.run(async (context) => {
-    const input = context.document.getSelection().paragraphs.getFirst();
-    input.load("text");
-    await context.sync();
-    console.log(input.text);
-
-    const endpoint = "https://localhost:9000/ask";
-    try {
-      const received: Array<string> = await submit(endpoint, input.text);
-      let range = context.document.getSelection();
-      for (const line of received) {
-        range.insertParagraph(line, Word.InsertLocation.before);
-      }
-      await context.sync();
-    } catch (error) {
-      console.error(error);
-    }
-  });
-}
+};
 
 const App: React.FC<AppProps> = (props) => {
-
   if (!props.isOfficeInitialized) {
     return (
       <Progress
@@ -59,6 +19,55 @@ const App: React.FC<AppProps> = (props) => {
       />
     );
   }
+
+  const [id, setId] = useState(null);
+  const [eventSource, setEventSource] = useState(null);
+  const handleSubmit = (event) => {
+    // フォームのデフォルトの送信動作をキャンセル
+    event.preventDefault();
+
+    // SSEはリクエストBodyを受け取らないので事前に登録する
+    Word.run(async (context) => {
+      const input = context.document.getSelection().paragraphs.getFirst();
+      input.load("text");
+      await context.sync();
+
+      const response = await fetch("https://localhost:9000/ask/prepare", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ q: input.text }),
+      });
+      const responseData = await response.json();
+      setId(responseData.id); // effectの実行をトリガーするために状態を更新
+    });
+  };
+
+  useEffect(() => {
+    if (id && !eventSource) {
+      const sseUrl = `https://localhost:9000/ask/sse/${id}`;
+      const es = new EventSource(sseUrl);
+      es.onerror = (error) => {
+        console.error(error);
+      };
+      es.onmessage = (event) => {
+        Word.run((context) => {
+          context.document.body.insertText(event.data, Word.InsertLocation.end);
+          return context.sync();
+        }).catch((error) => {
+          console.error(error);
+        });
+      };
+      setEventSource(es); // effectの実行をトリガーするために状態を更新
+    }
+
+    return () => {
+      if (eventSource) {
+        eventSource.close(); // コンポーネント削除時にEventSourceも閉じる
+      }
+    };
+  }, [id, eventSource]); // 状態が変更されたときにeffectを実行する
 
   return (
     <div className="ms-welcome">
@@ -70,12 +79,12 @@ const App: React.FC<AppProps> = (props) => {
         <p className="ms-font-l">
           Select the body text, then click <b>Ask</b>.
         </p>
-        <DefaultButton className="ms-welcome__action" iconProps={{ iconName: "ChevronRight" }} onClick={ask}>
+        <DefaultButton className="ms-welcome__action" iconProps={{ iconName: "ChevronRight" }} onClick={handleSubmit}>
           Ask
         </DefaultButton>
       </main>
     </div>
   );
-}
+};
 
 export default App;
