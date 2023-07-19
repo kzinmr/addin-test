@@ -9,6 +9,18 @@ export type AppProps = {
   isOfficeInitialized: boolean;
 };
 
+const wordRun = async (text: string) => {
+  const lines = text.split("\n");
+  Word.run(async (context) => {
+    // バッチ処理由来の不自然な改行を避けるために、最初の行だけinsertTextで挿入する
+    context.document.body.insertText(lines[0], Word.InsertLocation.end);
+    for (const line of lines.slice(1)) {
+      context.document.body.insertParagraph(line, Word.InsertLocation.end);
+    }
+    return context.sync();
+  })
+}
+
 const App: React.FC<AppProps> = (props) => {
   if (!props.isOfficeInitialized) {
     return (
@@ -20,8 +32,8 @@ const App: React.FC<AppProps> = (props) => {
     );
   }
 
+  let eventSource = null;
   const [id, setId] = useState(null);
-  const [eventSource, setEventSource] = useState(null);
   const handleSubmit = (event) => {
     // フォームのデフォルトの送信動作をキャンセル
     event.preventDefault();
@@ -45,21 +57,70 @@ const App: React.FC<AppProps> = (props) => {
   };
 
   useEffect(() => {
-    if (id && !eventSource) {
+    let batchedMessages = [];
+    const batchSize = 100;
+
+    if (id) {
+      let isProcessing = false;
+      const maxRetries = 5;
+      let currentRetries = 0;
       const sseUrl = `https://localhost:9000/ask/sse/${id}`;
-      const es = new EventSource(sseUrl);
-      es.onerror = (error) => {
+      eventSource = new EventSource(sseUrl);
+      eventSource.addEventListener("done", () => {
+        eventSource.close();
+        if (batchedMessages.length >= 0) {
+          isProcessing = true;
+          // flush batched messages
+          const text = batchedMessages.join('');
+          batchedMessages = [];
+          try {
+            wordRun(text);
+          } catch (error) {
+            console.error(error);
+          } finally {
+            isProcessing = false;
+          }
+        }
+      });
+      eventSource.onerror = (error) => {
         console.error(error);
+        if (eventSource.readyState == EventSource.CLOSED) {
+          eventSource.close();
+        } else if (error.target.readyState === EventSource.CONNECTING) {
+          if (currentRetries === maxRetries) {
+            console.error("Max retries reached!");
+            eventSource.close();
+          } else {
+            console.log("Connection error - retrying... (" + currentRetries + "/" + maxRetries + ")");
+            currentRetries++;
+          }
+        } else {
+          console.error("An unexpected error occurred: ", error);
+        }
       };
-      es.onmessage = (event) => {
-        Word.run((context) => {
-          context.document.body.insertText(event.data, Word.InsertLocation.end);
-          return context.sync();
-        }).catch((error) => {
-          console.error(error);
-        });
+      eventSource.onmessage = async (event) => {
+
+        while(isProcessing) {
+          // 現在の処理が終わるまで待つ
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        const d = JSON.parse(event.data.trim());
+        batchedMessages.push(d.result);
+        if (batchedMessages.length >= batchSize) {
+          isProcessing = true;
+          // flush batched messages
+          const text = batchedMessages.join('');
+          batchedMessages = [];
+          try {
+            wordRun(text);
+          } catch (error) {
+            console.error(error);
+          } finally {
+            isProcessing = false;
+          }
+        }
       };
-      setEventSource(es); // effectの実行をトリガーするために状態を更新
     }
 
     return () => {
@@ -67,7 +128,7 @@ const App: React.FC<AppProps> = (props) => {
         eventSource.close(); // コンポーネント削除時にEventSourceも閉じる
       }
     };
-  }, [id, eventSource]); // 状態が変更されたときにeffectを実行する
+  }, [id]); // 状態が変更されたときにeffectを実行する
 
   return (
     <div className="ms-welcome">

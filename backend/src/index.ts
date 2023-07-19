@@ -157,28 +157,30 @@ app.get("/ask/sse/:id", (req: Request, res: Response) => {
   res.header("Access-Control-Allow-Methods", "GET");
 
   // socketのタイムアウトを無効化, todo: 適切な値を設定
-  req.socket.setTimeout(0);
+  req.socket.setTimeout(10000);
   // レスポンスを Server-Sent Events として設定
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
 
-  const sendEvents = (id: number, msg: string) => {
+  const sendEvents = (event: string, id: number, msg: string) => {
+    const data = JSON.stringify({result: msg});
+    // console.log(`event: ${event}\nid: ${id}\ndata: ${data}\n\n`);
+    res.write(`event: ${event}\n`)
     res.write(`id: ${id}\n`);
-    res.write(`data: ${msg}\n\n`);
+    res.write(`data: ${data}\n\n`);
   };
 
-  // https://developer.mozilla.org/en-US/docs/Web/API/setInterval
-  let question: string = "";
-  const intervalId = setInterval(() => {
+  let buffer: string = '';
+  let status: string | null = null;
+  const intervalId = setInterval(async () => {
     const clientData = clientIds.get(req.params.id);
     if (typeof clientData !== "undefined" && clientData.questions.length > 0) {
-      question = clientData.questions.pop() || "";
+      const question = clientData.questions.pop() || "";
 
       // todo: v4.0.0がリリースされたらStreamにSDK側が対応される見込み.
       // https://github.com/openai/openai-node/issues/18
-      openai
-      .createChatCompletion({
+      const completion = await openai.createChatCompletion({
         model: "gpt-3.5-turbo-0613",
         messages: [
           {
@@ -190,34 +192,47 @@ app.get("/ask/sse/:id", (req: Request, res: Response) => {
         ],
         stream: true,
       }, { responseType: 'stream' })
-      .then((completion) => {
-        // completion.data.on('data', data => console.log(data.toString()));
-        completion.data.on('data', (data: string) => {
-          const lines = data.split('\n').filter(line => line.trim() !== '');
-          for (const line of lines) {
-            const message: string = line.replace(/^data: /, '');
-            if (message === '[DONE]') {
+      try {
+        completion.data.on('data', (data) => {
+          // console.log(data.toString());
+          // 受け取ったイベントの data が完全なJSONオブジェクトを含まない場合に対処
+          buffer += data.toString();
+          const messages = buffer.split(/\ndata: /).filter(line => line.trim() !== '');
+          // If the buffer does not end with a newline, then the last line is a partial line, so keep it in the buffer
+          if (!buffer.endsWith('\n')) {
+            buffer = messages.pop() || '';
+          } else {
+            buffer = '';
+          }
+
+          for (const message of messages) {
+            const m: string = message.trim().replace(/^data: /, '');
+            if (m === '[DONE]') {
+              sendEvents('done', 0, '');
+              if (status === 'done' && clientData.questions.length === 0) {
+                console.log('close connection');
+                res.end();
+              }
               return;
             }
             try {
-              // console.log(message);
-              const parsed = JSON.parse(message);
+              const parsed = JSON.parse(m);
               const choice = parsed.choices[0];
               if (choice.finish_reason !== 'stop') {
                 // 受信したイベントをクライアントに送信
-                sendEvents(parsed.id, choice.delta?.content);
+                sendEvents('message', parsed.id, choice.delta?.content);
               }
             } catch(error) {
-                console.error('Could not JSON parse stream message', message, error);
+              console.error('Could not JSON parse stream message', m, error);
+              console.error('Original line:', m, error);
             }
           }
         });
-      })
-      .catch((err) => {
+      } catch (err) {
         if (err.response?.status) {
           console.error(err.response.status, err.message);
-          err.response.data.on('data', (data: string) => {
-            res.status(err.response.status).json(data);
+          err.response.data.on('data', (data) => {
+            res.status(err.response.status).json(data.toString());
           });
         } else {
           console.error('An error occurred during OpenAI request', err);
@@ -227,7 +242,7 @@ app.get("/ask/sse/:id", (req: Request, res: Response) => {
             },
           });          
         }
-      });
+      };
     }
   }, 2000);
 
