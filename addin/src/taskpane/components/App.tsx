@@ -11,14 +11,18 @@ export type AppProps = {
 
 const wordRun = async (text: string) => {
   const lines = text.split("\n");
-  Word.run(async (context) => {
-    // バッチ処理由来の不自然な改行を避けるために、最初の行だけinsertTextで挿入する
-    context.document.body.insertText(lines[0], Word.InsertLocation.end);
-    for (const line of lines.slice(1)) {
-      context.document.body.insertParagraph(line, Word.InsertLocation.end);
-    }
-    return context.sync();
-  })
+  try {
+    await Word.run(async (context) => {
+      // バッチ処理由来の不自然な改行を避けるために、最初の行だけinsertTextで挿入する
+      context.document.body.insertText(lines[0], Word.InsertLocation.end);
+      for (const line of lines.slice(1)) {
+        context.document.body.insertParagraph(line, Word.InsertLocation.end);
+      }
+      return context.sync();
+    });
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 const App: React.FC<AppProps> = (props) => {
