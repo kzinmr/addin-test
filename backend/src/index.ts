@@ -6,72 +6,68 @@ import * as https from "https";
 import * as devCerts from "office-addin-dev-certs";
 import { Configuration, OpenAIApi } from "openai";
 import { v4 as uuidv4 } from 'uuid';
-
 require('dotenv').config({ path: '.env.local' });
 
 type ClientData = { questions: string[] }
+const clientIds: Map<string, ClientData> = new Map();
 
-const app = express();
-app.use(bodyParser.json());
-const port = 9000;
-const client = "https://localhost:3000";
-let clientIds: Map<string, ClientData> = new Map();
+// Set up OpenAI API Client
 const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
   // organization: process.env.OPENAI_ORG_ID,
 });
 const openai = new OpenAIApi(configuration);
 
-/** 
- * CORSリクエストの際にブラウザから送出されるPre-flight Requestsを許可するためのAPI。
- * See. https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS#preflighted_requests_in_cors
- * @param 
- * @returns 
- */
-app.options("*", (req: Request, res: Response) => {
-  res.header("Access-Control-Allow-Origin", client);
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept"
-  );
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
-  res.sendStatus(200);
-});
+// Set up Express app
+const app = express();
+app.use(bodyParser.json());
+app.use(setCORSHeaders);
 
-/** 
+function setCORSHeaders(req: Request, res: Response, next: NextFunction) {
+  const client = "https://localhost:3000";
+  res.header("Access-Control-Allow-Origin", client);
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE");
+  next();
+}
+
+function checkOpenAIApiKey(req: Request, res: Response, next: NextFunction) {
+  if (!configuration.apiKey) {
+    res.status(500).json({
+      error: { message: "OpenAI API key not configured." },
+    });
+    return;
+  }
+  next();
+}
+
+function checkRequestQuery(req: Request, res: Response, next: NextFunction) {
+  const q = req.body.q || "";
+  if (q.trim().length === 0) {
+    res.status(400).json({
+      error: { message: "Please enter a valid query." },
+    });
+    return;
+  }
+  next();
+}
+
+// Set up routes
+app.options("*", (_, res: Response) => res.sendStatus(200));
+// CORSリクエストの際にブラウザから送出されるPre-flight Requestsを許可するためのAPI。
+// See. https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/OPTIONS#preflighted_requests_in_cors
+app.post("/ask", checkOpenAIApiKey, checkRequestQuery, askHandler);
+app.post("/ask/prepare", checkOpenAIApiKey, checkRequestQuery, askPrepareHandler);
+app.get("/ask/sse/:id", askSSEHandler);
+
+/**
  * ChatGPTからのレスポンスを通常のREST APIで返すAPI。
  * 結果のレスポンスはJSONで一気に返すため１０秒以上程度遅延が起こる。
  * @param onLine A function that will be called on each new EventSource line.
  * @returns ChatGPTの結果をJSONで返す。
  */
-app.post("/ask", (req: Request, res: Response) => {
-  // CORS
-  res.header("Access-Control-Allow-Origin", client);
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept"
-  );
-  res.header("Access-Control-Allow-Methods", "POST");
-  // check openai api key is configured
-  if (!configuration.apiKey) {
-    res.status(500).json({
-      error: {
-        message: "OpenAI API key not configured.",
-      },
-    });
-    return;
-  }
-  // check req.body has q key
+function askHandler(req: Request, res: Response) {
   const q = req.body.q || "";
-  if (q.trim().length === 0) {
-    res.status(400).json({
-      error: {
-        message: "Please enter a valid query.",
-      },
-    });
-    return;
-  }
-
   openai
     .createChatCompletion({
       model: "gpt-3.5-turbo-0613",
@@ -101,7 +97,7 @@ app.post("/ask", (req: Request, res: Response) => {
         });
       }
     });
-});
+};
 
 /** 
  * ChatGPTからのレスポンスをServer-Sent Events(SSE)で返すための前準備のAPI。
@@ -110,37 +106,12 @@ app.post("/ask", (req: Request, res: Response) => {
  * @param JSONボディで質問を受け取る(key: q)。
  * @returns 発行したUUIDを返す。
  */
-app.post('/ask/prepare', (req: Request, res: Response) => {
-  // CORS
-  res.header("Access-Control-Allow-Origin", client);
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept"
-  );
-  res.header("Access-Control-Allow-Methods", "POST");
-  // check openai api key is configured
-  if (!configuration.apiKey) {
-    res.status(500).json({
-      error: {
-        message: "OpenAI API key not configured.",
-      },
-    });
-    return;
-  }  
-  // check req.body has q key
+function askPrepareHandler(req: Request, res: Response) {
   const q = req.body.q || "";
-  if (q.trim().length === 0) {
-    res.status(400).json({
-      error: {
-        message: "Please enter a valid query.",
-      },
-    });
-    return;
-  }
   const id = uuidv4();
   clientIds.set(id, { questions: [q] });
   res.status(200).json({ id });
-});
+};
 
 /** 
  * ChatGPTからのレスポンスをServer-Sent Events(SSE)で返すAPI。
@@ -148,14 +119,7 @@ app.post('/ask/prepare', (req: Request, res: Response) => {
  * @param id 事前リクエストで保存したUUID、ChatGPTへのリクエストを引き出すためのキー。
  * @returns ChatGPTの結果をSSEで返す。
  */
-app.get("/ask/sse/:id", (req: Request, res: Response) => {
-  res.header("Access-Control-Allow-Origin", client);
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept"
-  );
-  res.header("Access-Control-Allow-Methods", "GET");
-
+function askSSEHandler(req: Request, res: Response) {
   // socketのタイムアウトを無効化, todo: 適切な値を設定
   req.socket.setTimeout(10000);
   // レスポンスを Server-Sent Events として設定
@@ -251,14 +215,14 @@ app.get("/ask/sse/:id", (req: Request, res: Response) => {
     clientIds.delete(req.params.id);
   });
 
-});
+};
 
 // Office Add-inが必要とするHTTPSサーバーをlocalに建てるための措置
 const options = async () => {
     return await devCerts.getHttpsServerOptions();
 };
 options().then((httpsOptions) => {
-  https.createServer(httpsOptions, app).listen(port, () => {
+  https.createServer(httpsOptions, app).listen(9000, () => {
     console.log("HTTPS Server running on port 9000");
   });
 });
